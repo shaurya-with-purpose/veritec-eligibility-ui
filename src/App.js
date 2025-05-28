@@ -216,6 +216,7 @@ function App() {
   };
 
   return (
+    <div className="container"> 
     <div style={{ padding: 20 }}>
       <button onClick={fetchToken}>Get Token</button>
       <br /><br />
@@ -271,6 +272,8 @@ function App() {
       )}
 
       {error && <p style={{ color: "red" }}>{error}</p>}
+    </div>
+
     </div>
   );
 }
