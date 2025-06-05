@@ -1,6 +1,11 @@
 
 import { useState } from "react";
 import Papa from "papaparse";
+import { DataGrid } from '@mui/x-data-grid';
+import { Pie } from 'react-chartjs-2';
+import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js';
+
+ChartJS.register(ArcElement, Tooltip, Legend);
 
 const TOKEN_KEY = "veritec_token";
 const EXPIRY_KEY = "veritec_token_expiry";
@@ -192,6 +197,48 @@ function App() {
     setBulkResults(results);
   };
 
+  const getTableColumns = () => [
+    { field: 'firstName', headerName: 'First Name', width: 130 },
+    { field: 'lastName', headerName: 'Last Name', width: 130 },
+    { field: 'purposeId', headerName: 'Purpose ID', width: 300 },
+    { field: 'eligibilityCode', headerName: 'Eligibility Code', width: 130 },
+    { field: 'eligibilityDescription', headerName: 'Eligibility Description', width: 300 },
+    { field: 'phoneNumber', headerName: 'Phone Number', width: 130 },
+    { field: 'emailId', headerName: 'Email ID', width: 200 }
+  ];
+
+  const getTableRows = () => {
+    return bulkResults.map(result => {
+      // Handle successful responses with data
+      if (result.response?.data?.Status === "CE") {
+        return {
+          id: result.rowId,
+          firstName: result.meta.firstName,
+          lastName: result.meta.lastName,
+          purposeId: result.purposeId,
+          eligibilityCode: result.response.data.responsecode,
+          eligibilityDescription: result.response.data.responsedescription,
+          phoneNumber: result.meta.phone,
+          emailId: result.meta.email
+        };
+      }
+
+      // Handle error responses
+      return {
+        id: result.rowId,
+        firstName: result.meta.firstName,
+        lastName: result.meta.lastName,
+        purposeId: result.purposeId,
+        eligibilityCode: result.response?.errors?.[0]?.status || '-101',
+        eligibilityDescription: result.response?.errors?.[0]?.detail ||
+          result.response?.errors?.[0]?.title ||
+          'Error processing request',
+        phoneNumber: result.meta.phone,
+        emailId: result.meta.email
+      };
+    });
+  };
+
   const exportToCSV = () => {
     const flatData = bulkResults.map(r => ({
       "Row ID": r.rowId,
@@ -215,64 +262,166 @@ function App() {
     document.body.removeChild(link);
   };
 
+  const getDistributionData = () => {
+    const distribution = {};
+
+    bulkResults.forEach(result => {
+      let code, description;
+
+      if (result.response?.data?.Status === "CE") {
+        code = result.response.data.responsecode;
+        description = result.response.data.responsedescription;
+      } else {
+        // Group 200 and 400 errors under a common code
+        const errorStatus = result.response?.errors?.[0]?.status;
+        if (errorStatus === '200' || errorStatus === '400') {
+          code = 'DATA_ERROR';
+          description = 'Invalid or missing customer data';
+        } else {
+          code = result.response?.errors?.[0]?.status || '-101';
+          description = result.response?.errors?.[0]?.detail ||
+            result.response?.errors?.[0]?.title ||
+            'Error processing request';
+        }
+      }
+
+      if (!distribution[code]) {
+        distribution[code] = {
+          description: description,
+          count: 0
+        };
+      }
+      distribution[code].count++;
+    });
+
+    return Object.entries(distribution).map(([code, data]) => ({
+      responseCode: code,
+      description: data.description,
+      count: data.count
+    }));
+  };
+
+  const getDistributionColumns = () => [
+    { field: 'responseCode', headerName: 'Response Code', width: 130 },
+    { field: 'description', headerName: 'Eligibility Description', width: 400 },
+    { field: 'count', headerName: 'Number of Customers', width: 180 }
+  ];
+
+  const getPieChartData = () => {
+    const data = getDistributionData();
+
+    return {
+      labels: data.map(item => `${item.responseCode} (${item.count})`),
+      datasets: [{
+        data: data.map(item => item.count),
+        backgroundColor: data.map(item => {
+          switch (item.responseCode) {
+            case '1': return '#4CAF50';  // Green for eligible
+            case '-3': return '#F44336';  // Red for ineligible
+            case 'DATA_ERROR': return '#36A2EB';  // Blue for data errors
+            default: return '#FFC107';  // Yellow for other errors
+          }
+        }),
+        borderColor: '#fff',
+        borderWidth: 1,
+      }]
+    };
+  };
+
   return (
-    <div className="container"> 
-    <div style={{ padding: 20 }}>
-      <button onClick={fetchToken}>Get Token</button>
-      <br /><br />
+    <div className="container">
+      <div style={{ padding: 20 }}>
+        <button onClick={fetchToken}>Get Token</button>
+        <br /><br />
 
-      <input type="file" accept=".csv" onChange={handleCSVUpload} />
-      <br /><br />
+        <input type="file" accept=".csv" onChange={handleCSVUpload} />
+        <br /><br />
 
-      {csvRows.length > 0 && (
-        <>
-          <h3>CSV Rows:</h3>
-          <ul>
-            {csvRows.map((row) => (
-              <li key={row.id}>
-                Row {row.id}:&nbsp;
-                <button onClick={() => selectPayload(row.payload)}>Select</button>
-              </li>
-            ))}
-          </ul>
-          <br />
-          <button onClick={checkAllRows}>Submit All Rows</button>
-        </>
-      )}
+        {csvRows.length > 0 && (
+          <>
+            <h3>CSV Rows:</h3>
+            <ul>
+              {csvRows.map((row) => (
+                <li key={row.id}>
+                  Row {row.id}:&nbsp;
+                  <button onClick={() => selectPayload(row.payload)}>Select</button>
+                </li>
+              ))}
+            </ul>
+            <br />
+            <button onClick={checkAllRows}>Submit All Rows</button>
+          </>
+        )}
 
-      <br />
-      <textarea
-        value={payload}
-        onChange={e => setPayload(e.target.value)}
-        rows={15}
-        cols={60}
-      />
-      <br /><br />
+        <br />
+        <textarea
+          value={payload}
+          onChange={e => setPayload(e.target.value)}
+          rows={15}
+          cols={60}
+        />
+        <br /><br />
 
-      <button onClick={checkEligibility}>Check Eligibility</button>
-      <br /><br />
+        <button onClick={checkEligibility}>Check Eligibility</button>
+        <br /><br />
 
-      {response && (
-        <pre style={{ background: "#eee", padding: 10 }}>
-          {JSON.stringify(response, null, 2)}
-        </pre>
-      )}
+        {response && (
+          <pre style={{ background: "#eee", padding: 10 }}>
+            {JSON.stringify(response, null, 2)}
+          </pre>
+        )}
 
-      {bulkResults.length > 0 && (
-        <>
-          <h3>Bulk Results:</h3>
-          <button onClick={exportToCSV}>Export Results to CSV</button>
-          {bulkResults.map((r) => (
-            <div key={r.rowId} style={{ marginBottom: 10, padding: 10, background: "#f6f6f6" }}>
-              <strong>Row {r.rowId} - {r.status.toUpperCase()}</strong>
-              <pre>{JSON.stringify(r.response, null, 2)}</pre>
+        {bulkResults.length > 0 && (
+          <>
+            <h3>Eligibility Distribution</h3>
+            <div style={{ display: 'flex', gap: '20px' }}>
+              <div style={{ height: 300, width: '60%', marginBottom: 20 }}>
+                <DataGrid
+                  rows={getDistributionData().map((item, index) => ({ ...item, id: index }))}
+                  columns={getDistributionColumns()}
+                  pageSize={5}
+                  rowsPerPageOptions={[5]}
+                  disableSelectionOnClick
+                />
+              </div>
+              <h3>Visual Distribution</h3>
+              <div style={{ height: 300, width: '40%', marginBottom: 20 }}>
+                <Pie
+                  data={getPieChartData()}
+                  options={{
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                      legend: {
+                        position: 'right'
+                      }
+                    }
+                  }}
+                />
+              </div>
             </div>
-          ))}
-        </>
-      )}
+          </>
+        )}
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
-    </div>
+        {bulkResults.length > 0 && (
+          <>
+            <h3>Bulk Results:</h3>
+            <button onClick={exportToCSV}>Export Results to CSV</button>
+            <div style={{ height: 400, width: '100%', marginTop: 20 }}>
+              <DataGrid
+                rows={getTableRows()}
+                columns={getTableColumns()}
+                pageSize={10}
+                rowsPerPageOptions={[10, 25, 50, 100]}
+                checkboxSelection
+                disableSelectionOnClick
+              />
+            </div>
+          </>
+        )}
+
+        {error && <p style={{ color: "red" }}>{error}</p>}
+      </div>
 
     </div>
   );
