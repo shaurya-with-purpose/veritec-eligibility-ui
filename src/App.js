@@ -41,8 +41,6 @@ const getDefaultPayload = (row) => ({
 
 function App() {
   const [token, setToken] = useState(null);
-  const [payload, setPayload] = useState("");
-  const [response, setResponse] = useState(null);
   const [bulkResults, setBulkResults] = useState([]);
   const [error, setError] = useState(null);
   const [csvRows, setCsvRows] = useState([]);
@@ -108,50 +106,6 @@ function App() {
         setError("Invalid CSV file.");
       }
     });
-  };
-
-  const selectPayload = (payloadObj) => {
-    setPayload(JSON.stringify(payloadObj, null, 2));
-    setResponse(null);
-    setError(null);
-  };
-
-  const checkEligibility = async () => {
-    const currentToken = token || getValidTokenFromCache();
-    if (!currentToken) {
-      setError("No valid token. Please click Get Token.");
-      return;
-    }
-
-    try {
-      const parsed = JSON.parse(payload);
-      const res = await fetch("https://api.c.pfcld.com/v1/veritec-business-ms/veritec/eligibility", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${currentToken}`
-        },
-        body: JSON.stringify(parsed)
-      });
-
-      if (!res.ok) {
-        if (res.status === 401) {
-          setError("Token expired. Please click 'Get Token' again.");
-          setToken(null);
-        } else {
-          const errorText = await res.text();
-          setError(`Eligibility check failed: ${res.status} ${errorText}`);
-        }
-        return;
-      }
-
-      const json = await res.json();
-      setResponse(json);
-      setError(null);
-    } catch (err) {
-      console.error(err);
-      setError("Eligibility check failed (network or parse error)");
-    }
   };
 
   const checkAllRows = async () => {
