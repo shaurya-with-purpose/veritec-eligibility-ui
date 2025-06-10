@@ -46,6 +46,10 @@ function App() {
   const [bulkResults, setBulkResults] = useState([]);
   const [error, setError] = useState(null);
   const [csvRows, setCsvRows] = useState([]);
+  const [manualPurposeId, setManualPurposeId] = useState("");
+  const [manualResult, setManualResult] = useState(null);
+  const [manualError, setManualError] = useState(null);
+  // No row selection state needed
 
   const fetchToken = async () => {
     const cachedToken = getValidTokenFromCache();
@@ -203,6 +207,36 @@ function App() {
     setBulkResults(results);
   };
 
+  const fetchManualCustomer = async () => {
+    setManualError(null);
+    setManualResult(null);
+    let currentToken = token || getValidTokenFromCache();
+    if (!currentToken) {
+      await fetchToken();
+      currentToken = getValidTokenFromCache();
+    }
+    if (!currentToken) {
+      setManualError("Token missing or expired. Please upload a CSV first.");
+      return;
+    }
+    try {
+      // Use getDefaultPayload with only purposeId, other fields default
+      const payload = getDefaultPayload({ purposeId: manualPurposeId });
+      const res = await fetch("https://api.c.pfcld.com/v1/veritec-business-ms/veritec/eligibility", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${currentToken}`
+        },
+        body: JSON.stringify(payload)
+      });
+      const json = await res.json();
+      setManualResult(json);
+    } catch (err) {
+      setManualError("Failed to fetch customer info.");
+    }
+  };
+
   const getTableColumns = () => [
     { field: 'firstName', headerName: 'First Name', width: 130 },
     { field: 'lastName', headerName: 'Last Name', width: 130 },
@@ -210,7 +244,7 @@ function App() {
     { field: 'eligibilityCode', headerName: 'Eligibility Code', width: 100 },
     { field: 'eligibilityDescription', headerName: 'Eligibility Description', width: 250 },
     { field: 'phoneNumber', headerName: 'Phone Number', width: 110 },
-    { field: 'emailId', headerName: 'Email ID', width: 200 }
+    { field: 'emailId', headerName: 'Email ID', width: 250 }
   ];
 
   const getTableRows = () => {
@@ -257,18 +291,15 @@ function App() {
   };
 
   const exportToCSV = () => {
-    const flatData = bulkResults.map(r => ({
-      "Row ID": r.rowId,
-      "First Name": r.meta.firstName,
-      "Last Name": r.meta.lastName,
-      "Phone": r.meta.phone,
-      "Email": r.meta.email,
-      "Purpose ID": r.purposeId,
-      "Status": r.status.toUpperCase(),
-      "Description": r.response?.responsedescription || r.response?.message || "N/A"
-    }));
-
-    const csv = Papa.unparse(flatData);
+    const columns = getTableColumns();
+    const rows = getTableRows();
+    const header = columns.map(col => col.headerName);
+    const data = rows.map(row =>
+      columns.map(col => row[col.field] !== undefined ? row[col.field] : "")
+    );
+    
+    const csvArray = [header, ...data];
+    const csv = csvArray.map(r => r.map(field => `"${String(field).replace(/"/g, '""')}"`).join(",")).join("\r\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -277,6 +308,7 @@ function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url); // Clean up the URL object
   };
 
   const getDistributionData = () => {
@@ -354,6 +386,92 @@ function App() {
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
         marginBottom: '30px'
       }}>
+        {/* Manual PurposeID Lookup UI */}
+        <div style={{ margin: '24px 0' }}>
+          <input
+            type="text"
+            placeholder="Enter Purpose ID"
+            value={manualPurposeId}
+            onChange={e => setManualPurposeId(e.target.value)}
+            style={{ padding: 8, width: 220, marginRight: 8 }}
+          />
+          <button
+            onClick={fetchManualCustomer}
+            style={{ padding: '8px 16px', background: '#1976d2', color: 'white', border: 'none', borderRadius: 4 }}
+            disabled={!manualPurposeId.trim()}
+          >
+            Check Eligibility
+          </button>
+        </div>
+        {manualError && <div style={{ color: 'red', marginBottom: 8 }}>{manualError}</div>}
+        {manualResult && (
+          <div style={{ marginBottom: 16 }}>
+            <h3>Customer Result</h3>
+            <div style={{width: 382, marginTop: -10 }}>
+              <DataGrid
+              autoHeight
+                rows={(() => {
+                  if (manualResult?.data?.Status === "CE") {
+                    return [{
+                      id: 1,
+                      eligibilityCode: manualResult.data.responsecode,
+                      eligibilityDescription: manualResult.data.responsedescription
+                    }];
+                  }
+                  // Handle error responses
+                  const errorStatus = manualResult?.errors?.[0]?.status;
+                  let eligibilityCode, eligibilityDescription;
+                  if (ERROR_CODE_MESSAGES[errorStatus]) {
+                    eligibilityCode = errorStatus;
+                    eligibilityDescription = ERROR_CODE_MESSAGES[errorStatus];
+                  } else {
+                    eligibilityCode = errorStatus || '-101';
+                    eligibilityDescription =
+                      manualResult?.errors?.[0]?.detail ||
+                      manualResult?.errors?.[0]?.title ||
+                      'Error processing request';
+                  }
+                  return [{
+                    id: 1,
+                    eligibilityCode,
+                    eligibilityDescription
+                  }];
+                })()}
+                columns={[
+                  { field: 'eligibilityCode', headerName: 'Eligibility Code', width: 140 },
+                  { field: 'eligibilityDescription', headerName: 'Eligibility Description', width: 240 }
+                ]}
+                pageSize={1}
+                rowsPerPageOptions={[1]}
+                hideFooter
+                disableSelectionOnClick
+                sx={{
+                  fontSize: '.95rem',
+                  '& .MuiDataGrid-columnHeader, & .MuiDataGrid-cell': {
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    lineHeight: '1.2',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRight: '1.5px solid #e0e0e0'
+                  },
+                  '& .MuiDataGrid-columnSeparator': {
+                    display: 'none !important'
+                  },
+                  '& .MuiDataGrid-columnHeaderTitle': {
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    lineHeight: '1.2',
+                    fontWeight: 'bold'
+                  },
+                  '& .MuiDataGrid-columnHeader': {
+                    backgroundColor: '#4CAF50',
+                  }
+                }}
+              />
+            </div>
+          </div>
+        )}
         <div style={{ marginTop: '20px' }}>
           <input
             type="file"
@@ -420,7 +538,7 @@ function App() {
                         fontWeight: 'bold'
                       },
                       '& .MuiDataGrid-columnHeader': {
-                        backgroundColor: '#4CAF50',
+                        backgroundColor: '#36A2EB',
                       }
                     }}
                   />
@@ -465,7 +583,6 @@ function App() {
                 columns={getTableColumns()}
                 pageSize={10}
                 rowsPerPageOptions={[10, 25, 50, 100]}
-                checkboxSelection
                 disableSelectionOnClick
                 sx={{
                   fontSize: '.95rem',
