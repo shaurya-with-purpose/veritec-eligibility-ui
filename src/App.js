@@ -1,4 +1,3 @@
-
 import { useState } from "react";
 import Papa from "papaparse";
 import { DataGrid } from '@mui/x-data-grid';
@@ -9,6 +8,11 @@ ChartJS.register(ArcElement, Tooltip, Legend);
 
 const TOKEN_KEY = "veritec_token";
 const EXPIRY_KEY = "veritec_token_expiry";
+
+const ERROR_CODE_MESSAGES = {
+  '200': 'Provided purpose ID could not be found.',
+  '400': 'Invalid or missing customer data.',
+};
 
 const saveTokenToCache = (token, expiresIn) => {
   localStorage.setItem(TOKEN_KEY, token);
@@ -47,6 +51,7 @@ function App() {
     const cachedToken = getValidTokenFromCache();
     if (cachedToken) {
       setToken(cachedToken);
+      setError(null);
       alert("Using cached token.");
       return;
     }
@@ -146,6 +151,7 @@ function App() {
   };
 
   const checkAllRows = async () => {
+    setError(null);
     let currentToken = getValidTokenFromCache();
     if (!currentToken) {
       await fetchToken();
@@ -200,44 +206,55 @@ function App() {
   const getTableColumns = () => [
     { field: 'firstName', headerName: 'First Name', width: 130 },
     { field: 'lastName', headerName: 'Last Name', width: 130 },
-    { field: 'purposeId', headerName: 'Purpose ID', width: 300 },
-    { field: 'eligibilityCode', headerName: 'Eligibility Code', width: 130 },
-    { field: 'eligibilityDescription', headerName: 'Eligibility Description', width: 300 },
-    { field: 'phoneNumber', headerName: 'Phone Number', width: 130 },
+    { field: 'purposeId', headerName: 'Purpose ID', width: 180 },
+    { field: 'eligibilityCode', headerName: 'Eligibility Code', width: 100 },
+    { field: 'eligibilityDescription', headerName: 'Eligibility Description', width: 250 },
+    { field: 'phoneNumber', headerName: 'Phone Number', width: 110 },
     { field: 'emailId', headerName: 'Email ID', width: 200 }
   ];
 
   const getTableRows = () => {
-    return bulkResults.map(result => {
-      // Handle successful responses with data
-      if (result.response?.data?.Status === "CE") {
-        return {
-          id: result.rowId,
-          firstName: result.meta.firstName,
-          lastName: result.meta.lastName,
-          purposeId: result.purposeId,
-          eligibilityCode: result.response.data.responsecode,
-          eligibilityDescription: result.response.data.responsedescription,
-          phoneNumber: result.meta.phone,
-          emailId: result.meta.email
-        };
-      }
-
-      // Handle error responses
+  return bulkResults.map(result => {
+    if (result.response?.data?.Status === "CE") {
       return {
         id: result.rowId,
         firstName: result.meta.firstName,
         lastName: result.meta.lastName,
         purposeId: result.purposeId,
-        eligibilityCode: result.response?.errors?.[0]?.status || '-101',
-        eligibilityDescription: result.response?.errors?.[0]?.detail ||
-          result.response?.errors?.[0]?.title ||
-          'Error processing request',
+        eligibilityCode: result.response.data.responsecode,
+        eligibilityDescription: result.response.data.responsedescription,
         phoneNumber: result.meta.phone,
         emailId: result.meta.email
       };
-    });
-  };
+    }
+
+    // Handle error responses
+    const errorStatus = result.response?.errors?.[0]?.status;
+    let eligibilityCode, eligibilityDescription;
+
+    if (ERROR_CODE_MESSAGES[errorStatus]) {
+      eligibilityCode = errorStatus;
+      eligibilityDescription = ERROR_CODE_MESSAGES[errorStatus];
+    } else {
+      eligibilityCode = errorStatus || '-101';
+      eligibilityDescription =
+        result.response?.errors?.[0]?.detail ||
+        result.response?.errors?.[0]?.title ||
+        'Error processing request';
+    }
+
+    return {
+      id: result.rowId,
+      firstName: result.meta.firstName,
+      lastName: result.meta.lastName,
+      purposeId: result.purposeId,
+      eligibilityCode,
+      eligibilityDescription,
+      phoneNumber: result.meta.phone,
+      emailId: result.meta.email
+    };
+  });
+};
 
   const exportToCSV = () => {
     const flatData = bulkResults.map(r => ({
@@ -275,7 +292,7 @@ function App() {
         // Group 200 and 400 errors under a common code
         const errorStatus = result.response?.errors?.[0]?.status;
         if (errorStatus === '200' || errorStatus === '400') {
-          code = 'DATA_ERROR';
+          code = 'Data_Error';
           description = 'Invalid or missing customer data';
         } else {
           code = result.response?.errors?.[0]?.status || '-101';
@@ -302,9 +319,9 @@ function App() {
   };
 
   const getDistributionColumns = () => [
-    { field: 'responseCode', headerName: 'Response Code', width: 130 },
-    { field: 'description', headerName: 'Eligibility Description', width: 400 },
-    { field: 'count', headerName: 'Number of Customers', width: 180 }
+    { field: 'responseCode', headerName: 'Response Code', width: 150 },
+    { field: 'description', headerName: 'Eligibility Description', width: 250 },
+    { field: 'count', headerName: 'Number of Customers', width: 174 }
   ];
 
   const getPieChartData = () => {
@@ -318,7 +335,7 @@ function App() {
           switch (item.responseCode) {
             case '1': return '#4CAF50';  // Green for eligible
             case '-3': return '#F44336';  // Red for ineligible
-            case 'DATA_ERROR': return '#36A2EB';  // Blue for data errors
+            case 'Data_Error': return '#36A2EB';  // Blue for data errors
             default: return '#FFC107';  // Yellow for other errors
           }
         }),
@@ -329,13 +346,36 @@ function App() {
   };
 
   return (
-    <div className="container">
-      <div style={{ padding: 20 }}>
-        <button onClick={fetchToken}>Get Token</button>
-        <br /><br />
+    <div className="container" style={{ maxWidth: '1200px', margin: '0 auto', padding: '40px 20px' }}>
+      <div style={{
+        backgroundColor: 'white',
+        borderRadius: '8px',
+        padding: '24px',
+        boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
+        marginBottom: '30px'
+      }}>
+        <button
+          onClick={fetchToken}
+          style={{
+            padding: '8px 16px',
+            backgroundColor: '#1976d2',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer'
+          }}
+        >
+          Get Token
+        </button>
 
-        <input type="file" accept=".csv" onChange={handleCSVUpload} />
-        <br /><br />
+        <div style={{ marginTop: '20px' }}>
+          <input
+            type="file"
+            accept=".csv"
+            onChange={handleCSVUpload}
+            style={{ marginBottom: '10px' }}
+          />
+        </div>
 
         {csvRows.length > 0 && (
           <>
@@ -350,6 +390,7 @@ function App() {
             </ul>
             <br />
             <button onClick={checkAllRows}>Submit All Rows</button>
+            <br></br>
           </>
         )}
 
@@ -373,39 +414,85 @@ function App() {
 
         {bulkResults.length > 0 && (
           <>
-            <h3>Eligibility Distribution</h3>
             <div style={{ display: 'flex', gap: '20px' }}>
-              <div style={{ height: 300, width: '60%', marginBottom: 20 }}>
-                <DataGrid
-                  rows={getDistributionData().map((item, index) => ({ ...item, id: index }))}
-                  columns={getDistributionColumns()}
-                  pageSize={5}
-                  rowsPerPageOptions={[5]}
-                  disableSelectionOnClick
-                />
-              </div>
-              <h3>Visual Distribution</h3>
-              <div style={{ height: 300, width: '40%', marginBottom: 20 }}>
-                <Pie
-                  data={getPieChartData()}
-                  options={{
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: {
-                      legend: {
-                        position: 'right'
-                      }
-                    }
+              {/* Left: Eligibility Distribution Table */}
+              <div style={{ width: '50%' }}>
+                <h3>Eligibility Distribution</h3>
+                <hr
+                  style={{
+                    border: 0,
+                    borderTop: '2px solid #2196f3',
+                    margin: '-10px 0 16px 0'
                   }}
                 />
+                <div style={{ height: 320 }}>
+                  <DataGrid
+                    rows={getDistributionData().map((item, index) => ({ ...item, id: index }))}
+                    columns={getDistributionColumns()}
+                    pageSize={5}
+                    rowsPerPageOptions={[5]}
+                    disableSelectionOnClick
+                    sx={{
+                      fontSize: '.95rem',
+                      '& .MuiDataGrid-columnHeader, & .MuiDataGrid-cell': {
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-word',
+                        lineHeight: '1.2',
+                        display: 'flex',
+                        alignItems: 'center',
+                        borderRight: '1px solid #e0e0e0'
+                      },
+                      '& .MuiDataGrid-columnSeparator': {
+                        display: 'none !important'
+                      }, // Hides the default separator
+                      '& .MuiDataGrid-columnHeaderTitle': {
+                        whiteSpace: 'normal',
+                        wordBreak: 'break-word',
+                        lineHeight: '1.2',
+                        fontWeight: 'bold'
+                      },
+                      '& .MuiDataGrid-columnHeader': {
+                        backgroundColor: '#4CAF50',
+                      }
+                    }
+                    }
+                  />
+                </div>
+              </div>
+              {/* Right: Pie Chart */}
+              <div style={{ width: '50%' }}>
+                <h3>Visual Distribution</h3>
+                <hr
+                  style={{
+                    border: 0,
+                    borderTop: '2px solid #2196f3',
+                    margin: '-10px 0 16px 0'
+                  }}
+                />
+                <div style={{ height: 300 }}>
+                  <Pie
+                    data={getPieChartData()}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      plugins: {
+                        legend: {
+                          position: 'right'
+                        }
+                      }
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </>
         )}
 
+
         {bulkResults.length > 0 && (
           <>
-            <h3>Bulk Results:</h3>
+            <div style={{ marginTop: '30px' }}></div>
+            <h3>Bulk Results</h3>
             <button onClick={exportToCSV}>Export Results to CSV</button>
             <div style={{ height: 400, width: '100%', marginTop: 20 }}>
               <DataGrid
@@ -415,6 +502,29 @@ function App() {
                 rowsPerPageOptions={[10, 25, 50, 100]}
                 checkboxSelection
                 disableSelectionOnClick
+                sx={{
+                  fontSize: '.95rem',
+                  '& .MuiDataGrid-columnHeader, & .MuiDataGrid-cell': {
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    lineHeight: '1.2',
+                    display: 'flex',
+                    alignItems: 'center',
+                    borderRight: '1.5px solid #e0e0e0'
+                  },
+                  '& .MuiDataGrid-columnSeparator': {
+                    display: 'none !important'
+                  }, // Hides the default separator
+                  '& .MuiDataGrid-columnHeaderTitle': {
+                    whiteSpace: 'normal',
+                    wordBreak: 'break-word',
+                    lineHeight: '1.2',
+                    fontWeight: 'bold'
+                  },
+                  '& .MuiDataGrid-columnHeader': {
+                    backgroundColor: '#4CAF50',
+                  }
+                }}
               />
             </div>
           </>
