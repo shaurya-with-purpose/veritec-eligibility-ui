@@ -71,7 +71,6 @@ function App() {
       const newToken = json.data.jwtToken;
       setToken(newToken);
       saveTokenToCache(newToken, json.data.expiresIn || 28800);
-      alert("New token generated successfully.");
       setError(null);
     } catch (err) {
       console.error(err);
@@ -79,14 +78,14 @@ function App() {
     }
   };
 
-  const handleCSVUpload = (e) => {
+  const handleCSVUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
     Papa.parse(file, {
       header: true,
       skipEmptyLines: true,
-      complete: (results) => {
+      complete: async (results) => {
         const rows = results.data.map((row, i) => ({
           id: i + 1,
           payload: getDefaultPayload(row),
@@ -99,6 +98,7 @@ function App() {
         }));
         setCsvRows(rows);
         setError(null);
+        // Removed checkAllRows() from here
       },
       error: () => {
         setError("Invalid CSV file.");
@@ -214,47 +214,47 @@ function App() {
   ];
 
   const getTableRows = () => {
-  return bulkResults.map(result => {
-    if (result.response?.data?.Status === "CE") {
+    return bulkResults.map(result => {
+      if (result.response?.data?.Status === "CE") {
+        return {
+          id: result.rowId,
+          firstName: result.meta.firstName,
+          lastName: result.meta.lastName,
+          purposeId: result.purposeId,
+          eligibilityCode: result.response.data.responsecode,
+          eligibilityDescription: result.response.data.responsedescription,
+          phoneNumber: result.meta.phone,
+          emailId: result.meta.email
+        };
+      }
+
+      // Handle error responses
+      const errorStatus = result.response?.errors?.[0]?.status;
+      let eligibilityCode, eligibilityDescription;
+
+      if (ERROR_CODE_MESSAGES[errorStatus]) {
+        eligibilityCode = errorStatus;
+        eligibilityDescription = ERROR_CODE_MESSAGES[errorStatus];
+      } else {
+        eligibilityCode = errorStatus || '-101';
+        eligibilityDescription =
+          result.response?.errors?.[0]?.detail ||
+          result.response?.errors?.[0]?.title ||
+          'Error processing request';
+      }
+
       return {
         id: result.rowId,
         firstName: result.meta.firstName,
         lastName: result.meta.lastName,
         purposeId: result.purposeId,
-        eligibilityCode: result.response.data.responsecode,
-        eligibilityDescription: result.response.data.responsedescription,
+        eligibilityCode,
+        eligibilityDescription,
         phoneNumber: result.meta.phone,
         emailId: result.meta.email
       };
-    }
-
-    // Handle error responses
-    const errorStatus = result.response?.errors?.[0]?.status;
-    let eligibilityCode, eligibilityDescription;
-
-    if (ERROR_CODE_MESSAGES[errorStatus]) {
-      eligibilityCode = errorStatus;
-      eligibilityDescription = ERROR_CODE_MESSAGES[errorStatus];
-    } else {
-      eligibilityCode = errorStatus || '-101';
-      eligibilityDescription =
-        result.response?.errors?.[0]?.detail ||
-        result.response?.errors?.[0]?.title ||
-        'Error processing request';
-    }
-
-    return {
-      id: result.rowId,
-      firstName: result.meta.firstName,
-      lastName: result.meta.lastName,
-      purposeId: result.purposeId,
-      eligibilityCode,
-      eligibilityDescription,
-      phoneNumber: result.meta.phone,
-      emailId: result.meta.email
-    };
-  });
-};
+    });
+  };
 
   const exportToCSV = () => {
     const flatData = bulkResults.map(r => ({
@@ -354,20 +354,6 @@ function App() {
         boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
         marginBottom: '30px'
       }}>
-        <button
-          onClick={fetchToken}
-          style={{
-            padding: '8px 16px',
-            backgroundColor: '#1976d2',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer'
-          }}
-        >
-          Get Token
-        </button>
-
         <div style={{ marginTop: '20px' }}>
           <input
             type="file"
@@ -376,42 +362,24 @@ function App() {
             style={{ marginBottom: '10px' }}
           />
         </div>
-
-        {csvRows.length > 0 && (
-          <>
-            <h3>CSV Rows:</h3>
-            <ul>
-              {csvRows.map((row) => (
-                <li key={row.id}>
-                  Row {row.id}:&nbsp;
-                  <button onClick={() => selectPayload(row.payload)}>Select</button>
-                </li>
-              ))}
-            </ul>
-            <br />
-            <button onClick={checkAllRows}>Submit All Rows</button>
-            <br></br>
-          </>
-        )}
-
         <br />
-        <textarea
-          value={payload}
-          onChange={e => setPayload(e.target.value)}
-          rows={15}
-          cols={60}
-        />
-        <br /><br />
-
-        <button onClick={checkEligibility}>Check Eligibility</button>
-        <br /><br />
-
-        {response && (
-          <pre style={{ background: "#eee", padding: 10 }}>
-            {JSON.stringify(response, null, 2)}
-          </pre>
-        )}
-
+        <button
+          onClick={checkAllRows}
+          disabled={csvRows.length === 0}
+          style={{
+            backgroundColor: csvRows.length === 0 ? '#ccc' : '#1976d2',
+            color: 'white',
+            border: 'none',
+            borderRadius: '4px',
+            padding: '10px 24px',
+            fontSize: '1rem',
+            cursor: csvRows.length === 0 ? 'not-allowed' : 'pointer',
+            marginBottom: '24px'
+          }}
+        >
+          Submit
+        </button>
+        {/* Only show results after CSV upload and processing */}
         {bulkResults.length > 0 && (
           <>
             <div style={{ display: 'flex', gap: '20px' }}>
@@ -444,7 +412,7 @@ function App() {
                       },
                       '& .MuiDataGrid-columnSeparator': {
                         display: 'none !important'
-                      }, // Hides the default separator
+                      },
                       '& .MuiDataGrid-columnHeaderTitle': {
                         whiteSpace: 'normal',
                         wordBreak: 'break-word',
@@ -454,8 +422,7 @@ function App() {
                       '& .MuiDataGrid-columnHeader': {
                         backgroundColor: '#4CAF50',
                       }
-                    }
-                    }
+                    }}
                   />
                 </div>
               </div>
@@ -487,8 +454,6 @@ function App() {
             </div>
           </>
         )}
-
-
         {bulkResults.length > 0 && (
           <>
             <div style={{ marginTop: '30px' }}></div>
@@ -514,7 +479,7 @@ function App() {
                   },
                   '& .MuiDataGrid-columnSeparator': {
                     display: 'none !important'
-                  }, // Hides the default separator
+                  },
                   '& .MuiDataGrid-columnHeaderTitle': {
                     whiteSpace: 'normal',
                     wordBreak: 'break-word',
@@ -529,10 +494,8 @@ function App() {
             </div>
           </>
         )}
-
         {error && <p style={{ color: "red" }}>{error}</p>}
       </div>
-
     </div>
   );
 }
